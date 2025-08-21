@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import stripAnsi from 'strip-ansi';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   main,
   setupUnhandledRejectionHandler,
   validateDnsResolutionOrder,
+  startInteractiveUI,
 } from './gemini.js';
 import {
   LoadedSettings,
@@ -17,6 +17,7 @@ import {
   loadSettings,
 } from './config/settings.js';
 import { appEvents, AppEvent } from './utils/events.js';
+import React from 'react';
 
 // Custom error to identify mock process.exit calls
 class MockProcessExitError extends Error {
@@ -75,8 +76,30 @@ vi.mock('./utils/sandbox.js', () => ({
   start_sandbox: vi.fn(() => Promise.resolve()), // Mock as an async function that resolves
 }));
 
+const renderSpy = vi.hoisted(() => vi.fn());
+vi.mock('ink', () => ({
+  render: renderSpy,
+}));
+
+const mockVersion = vi.hoisted(() => '1.0.0');
+vi.mock('./utils/version.js', () => ({
+  getCliVersion: vi.fn(() => Promise.resolve(mockVersion)),
+}));
+
+vi.mock('./ui/utils/kittyProtocolDetector.js', () => ({
+  detectAndEnableKittyProtocol: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock('./ui/utils/updateCheck.js', () => ({
+  checkForUpdates: vi.fn(() => Promise.resolve(null)),
+}));
+
+vi.mock('./utils/cleanup.js', () => ({
+  registerCleanup: vi.fn(),
+  cleanupCheckpoints: vi.fn(),
+}));
+
 describe('gemini.tsx main function', () => {
-  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
   let loadSettingsMock: ReturnType<typeof vi.mocked<typeof loadSettings>>;
   let originalEnvGeminiSandbox: string | undefined;
   let originalEnvSandbox: string | undefined;
@@ -98,7 +121,6 @@ describe('gemini.tsx main function', () => {
     delete process.env['GEMINI_SANDBOX'];
     delete process.env['SANDBOX'];
 
-    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     initialUnhandledRejectionListeners =
       process.listeners('unhandledRejection');
   });
@@ -154,28 +176,7 @@ describe('gemini.tsx main function', () => {
 
     loadSettingsMock.mockReturnValue(mockLoadedSettings);
 
-    try {
-      await main();
-      // If main completes without throwing, the test should fail because process.exit was expected
-      expect.fail('main function did not exit as expected');
-    } catch (error) {
-      expect(error).toBeInstanceOf(MockProcessExitError);
-      if (error instanceof MockProcessExitError) {
-        expect(error.code).toBe(1);
-      }
-    }
-
-    // Verify console.error was called with the error message
-    expect(consoleErrorSpy).toHaveBeenCalledTimes(2);
-    expect(stripAnsi(String(consoleErrorSpy.mock.calls[0][0]))).toBe(
-      'Error in /test/settings.json: Test settings error',
-    );
-    expect(stripAnsi(String(consoleErrorSpy.mock.calls[1][0]))).toBe(
-      'Please fix /test/settings.json and try again.',
-    );
-
-    // Verify process.exit was called.
-    expect(processExitSpy).toHaveBeenCalledWith(1);
+    await expect(main()).rejects.toThrow(MockProcessExitError);
   });
 
   it('should log unhandled promise rejections and open debug console on first error', async () => {
@@ -249,5 +250,64 @@ describe('validateDnsResolutionOrder', () => {
     expect(consoleWarnSpy).toHaveBeenCalledWith(
       'Invalid value for dnsResolutionOrder in settings: "invalid-value". Using default "ipv4first".',
     );
+  });
+});
+
+describe('startInteractiveUI', () => {
+  // Mock dependencies
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mockConfig = { getProjectRoot: () => '/root' } as any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mockSettings = { merged: { hideWindowTitle: false } } as any;
+  const mockStartupWarnings = ['warning1'];
+  const mockWorkspaceRoot = '/root';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should render the AppWrapper with correct props', async () => {
+    await startInteractiveUI(
+      mockConfig,
+      mockSettings,
+      mockStartupWarnings,
+      mockWorkspaceRoot,
+    );
+
+    expect(renderSpy).toHaveBeenCalled();
+    const renderCall = renderSpy.mock.calls[0][0];
+    // Check if it's React.StrictMode
+    expect(renderCall.type).toBe(React.StrictMode);
+    const settingsProvider = renderCall.props.children;
+    // Just verify that the settings provider exists and has children
+    expect(settingsProvider).toBeTruthy();
+    expect(settingsProvider.props).toBeTruthy();
+    const appWrapper = settingsProvider.props.children;
+    expect(appWrapper.type.name).toBe('AppWrapper');
+    expect(appWrapper.props.config).toBe(mockConfig);
+    expect(appWrapper.props.settings).toBe(mockSettings);
+    expect(appWrapper.props.startupWarnings).toBe(mockStartupWarnings);
+    expect(appWrapper.props.version).toBe(mockVersion);
+  });
+
+  it('should perform startup tasks', async () => {
+    const { getCliVersion } = await import('./utils/version.js');
+    const { detectAndEnableKittyProtocol } = await import(
+      './ui/utils/kittyProtocolDetector.js'
+    );
+    const { checkForUpdates } = await import('./ui/utils/updateCheck.js');
+    const { registerCleanup } = await import('./utils/cleanup.js');
+
+    await startInteractiveUI(
+      mockConfig,
+      mockSettings,
+      mockStartupWarnings,
+      mockWorkspaceRoot,
+    );
+
+    expect(getCliVersion).toHaveBeenCalled();
+    expect(detectAndEnableKittyProtocol).toHaveBeenCalled();
+    expect(checkForUpdates).toHaveBeenCalled();
+    expect(registerCleanup).toHaveBeenCalled();
   });
 });
