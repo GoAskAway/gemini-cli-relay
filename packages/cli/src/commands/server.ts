@@ -52,13 +52,27 @@ export const serverCommand: CommandModule<object, ServerArgs> = {
 
       const ioChannel = new ServerIOChannel(ws);
 
-      // Hijack the global process I/O
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      process.stdin = ioChannel.stdin as any;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      process.stdout = ioChannel.stdout as any;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      process.stderr = ioChannel.stderr as any;
+      // Store original streams for restoration
+      const originalStdin = process.stdin;
+      const originalStdout = process.stdout;
+      const originalStderr = process.stderr;
+
+      // Temporarily redirect I/O using Object.defineProperty
+      Object.defineProperty(process, 'stdin', {
+        value: ioChannel.stdin,
+        writable: false,
+        configurable: true,
+      });
+      Object.defineProperty(process, 'stdout', {
+        value: ioChannel.stdout,
+        writable: false,
+        configurable: true,
+      });
+      Object.defineProperty(process, 'stderr', {
+        value: ioChannel.stderr,
+        writable: false,
+        configurable: true,
+      });
 
       // When the terminal is resized, we need to inform the TTY
       // so that ink can re-render.
@@ -95,6 +109,23 @@ export const serverCommand: CommandModule<object, ServerArgs> = {
       } catch (e) {
         console.error('Failed to start interactive session:', e);
         ws.close(1011, 'Session initialization failed.');
+      } finally {
+        // Restore original I/O streams
+        Object.defineProperty(process, 'stdin', {
+          value: originalStdin,
+          writable: false,
+          configurable: true,
+        });
+        Object.defineProperty(process, 'stdout', {
+          value: originalStdout,
+          writable: false,
+          configurable: true,
+        });
+        Object.defineProperty(process, 'stderr', {
+          value: originalStderr,
+          writable: false,
+          configurable: true,
+        });
       }
 
       ws.on('close', () => {
