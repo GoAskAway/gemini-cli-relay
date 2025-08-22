@@ -35,6 +35,8 @@ export default tseslint.config(
       'packages/server/dist/**',
       'packages/test-utils/dist/**',
       'packages/vscode-ide-companion/dist/**',
+      'packages/relay/dist/**',
+      'packages/relay/src/vite-env.d.ts',
       'bundle/**',
       'package/bundle/**',
       '.integration-tests/**',
@@ -124,6 +126,12 @@ export default tseslint.config(
             'memfs/lib/volume.js',
             'yargs/**',
             'msw/node',
+            // --- Web-CLI Exemptions ---
+            // Required to load the stylesheet for the xterm.js terminal component.
+            '@xterm/xterm/css/xterm.css',
+            // The standard entry point for modern React 18+ applications.
+            'react-dom/client',
+            // --- End Web-CLI Exemptions ---
           ],
         },
       ],

@@ -1,0 +1,55 @@
+{
+  "name": "@askaway/gemini-cli-relay",
+  "version": "0.1.21",
+  "description": "Enable the Gemini CLI to run as a relay server.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GoAskAway/gemini-cli-relay.git"
+  },
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare": "bash husky-init.sh",
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:ci": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@xterm/xterm": "^5.5.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-xtermjs": "^1.0.10"
+  },
+  "devDependencies": {
+    "@google/gemini-cli-test-utils": "file:../test-utils",
+    "husky": "^9.1.7",
+    "typescript": "~5.8.3",
+    "vitest": "^3.1.1",
+    "@eslint/js": "^9.33.0",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.0",
+    "eslint": "^9.33.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "0.4.20",
+    "globals": "^16.3.0",
+    "typescript-eslint": "^8.39.1",
+    "vite": "^7.1.2",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/jest-dom": "^6.4.5",
+    "jsdom": "^24.1.0",
+    "canvas": "^2.11.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
