@@ -1,6 +1,6 @@
 {
   "name": "@google/gemini-cli",
-  "version": "0.1.21",
+  "version": "0.1.21-relay.0",
   "engines": {
     "node": ">=20.0.0"
   },
@@ -11,7 +11,13 @@
   "private": "true",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/google-gemini/gemini-cli.git"
+    "url": "git+https://github.com/GoAskAway/gemini-cli-relay.git"
+  },
+  "relay": {
+    "upstream_version": "0.1.21",
+    "relay_increment": 0,
+    "change_type": "INITIAL",
+    "sync_date": "2025-08-23"
   },
   "config": {
     "sandboxImageUri": "us-docker.pkg.dev/gemini-code-dev/gemini-cli/sandbox:0.1.21"
@@ -47,6 +53,9 @@
     "prepare": "npm run bundle && npm run prepare --workspaces --if-present",
     "prepare:package": "node scripts/prepare-package.js",
     "release:version": "node scripts/version.js",
+    "relay:version": "node packages/relay/scripts/get-relay-version.js",
+    "relay:check": "node packages/relay/scripts/get-relay-version.js check",
+    "relay:next": "node packages/relay/scripts/get-relay-version.js next",
     "telemetry": "node scripts/telemetry.js",
     "clean": "node scripts/clean.js"
   },

@@ -1,12 +1,24 @@
 {
-  "name": "@askaway/gemini-cli-relay",
-  "version": "0.1.21",
-  "description": "Enable the Gemini CLI to run as a relay server.",
+  "name": "@goaskaway/gemini-cli-relay",
+  "version": "0.1.21-relay.0",
+  "description": "Enable the Gemini CLI to run as a relay server with AskAway integration.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/GoAskAway/gemini-cli-relay.git"
   },
-  "private": true,
+  "bugs": {
+    "url": "https://github.com/GoAskAway/gemini-cli-relay/issues"
+  },
+  "homepage": "https://github.com/GoAskAway/gemini-cli-relay#readme",
+  "keywords": [
+    "gemini",
+    "cli", 
+    "relay",
+    "goaskaway",
+    "ai"
+  ],
+  "author": "GoAskAway",
+  "private": false,
   "type": "module",
   "scripts": {
     "prepare": "bash husky-init.sh",
@@ -51,5 +63,11 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "relay": {
+    "upstream_version": "0.1.21",
+    "relay_increment": 0,
+    "change_type": "INITIAL",
+    "sync_date": "2025-08-23"
   }
 }

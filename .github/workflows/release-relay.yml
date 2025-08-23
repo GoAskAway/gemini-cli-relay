@@ -1,0 +1,241 @@
+name: 'Release Relay'
+
+on:
+  workflow_call:
+    inputs:
+      change_type:
+        description: 'Type of change: UPSTREAM_SYNC, RELAY_FEATURE, MANUAL'
+        type: string
+        default: 'RELAY_FEATURE'
+      upstream_version:
+        description: 'Upstream version (for UPSTREAM_SYNC)'
+        type: string
+        required: false
+      force_version:
+        description: 'Force specific version (for MANUAL)'
+        type: string
+        required: false
+      dry_run:
+        description: 'Run without publishing'
+        type: boolean
+        default: false
+  
+  workflow_dispatch:
+    inputs:
+      change_type:
+        description: 'Type of change'
+        type: choice
+        options:
+          - RELAY_FEATURE
+          - UPSTREAM_SYNC  
+          - MANUAL
+        default: 'RELAY_FEATURE'
+      upstream_version:
+        description: 'Upstream version (for UPSTREAM_SYNC only)'
+        type: string
+        required: false
+      force_version:
+        description: 'Force specific version (format: X.Y.Z-relay.N)'
+        type: string
+        required: false
+      dry_run:
+        description: 'Run without publishing'
+        type: boolean
+        default: true
+
+jobs:
+  release-relay:
+    runs-on: ubuntu-latest
+    if: github.repository == 'GoAskAway/gemini-cli-relay'
+    environment:
+      name: 'relay-release'
+      url: '${{ github.server_url }}/${{ github.repository }}/releases/tag/v${{ steps.version.outputs.version }}'
+    
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      issues: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Get relay version
+        id: version
+        env:
+          RELAY_CHANGE_TYPE: ${{ inputs.change_type }}
+          RELAY_FORCE_VERSION: ${{ inputs.force_version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION_INFO=$(node packages/relay/scripts/get-relay-version.js next)
+          echo "Version info: $VERSION_INFO"
+          
+          VERSION=$(echo "$VERSION_INFO" | jq -r '.version')
+          UPSTREAM_VERSION=$(echo "$VERSION_INFO" | jq -r '.upstream_version')
+          RELAY_INCREMENT=$(echo "$VERSION_INFO" | jq -r '.relay_increment')
+          CHANGE_TYPE=$(echo "$VERSION_INFO" | jq -r '.change_type')
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "upstream_version=$UPSTREAM_VERSION" >> $GITHUB_OUTPUT
+          echo "relay_increment=$RELAY_INCREMENT" >> $GITHUB_OUTPUT
+          echo "change_type=$CHANGE_TYPE" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Run tests
+        run: |
+          npm run preflight
+          # TODO: 添加 relay 特有的测试
+
+      - name: Configure git
+        run: |
+          git config user.name "relay-release-bot"
+          git config user.email "relay-release-bot@goaskaway.com"
+
+      - name: Create release branch
+        id: branch
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          BRANCH_NAME="release/relay-v$VERSION"
+          git switch -c "$BRANCH_NAME"
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+
+      - name: Update package versions
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          UPSTREAM_VERSION: ${{ steps.version.outputs.upstream_version }}
+          RELAY_INCREMENT: ${{ steps.version.outputs.relay_increment }}
+          CHANGE_TYPE: ${{ steps.version.outputs.change_type }}
+        run: |
+          # 更新主 package.json
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          
+          # 更新 relay 元数据
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.name = '@goaskaway/gemini-cli-relay';
+            pkg.relay = {
+              upstream_version: '$UPSTREAM_VERSION',
+              relay_increment: parseInt('$RELAY_INCREMENT'),
+              change_type: '$CHANGE_TYPE',
+              sync_date: new Date().toISOString().split('T')[0]
+            };
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          
+          # 更新 workspaces 中的版本
+          npm run release:version "$VERSION"
+
+      - name: Commit version changes
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          BRANCH_NAME: ${{ steps.branch.outputs.branch_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          git add package.json package-lock.json packages/*/package.json
+          git commit -m "chore(release): $TAG"
+          
+          if [[ "$DRY_RUN" != "true" ]]; then
+            git push --set-upstream origin "$BRANCH_NAME" --follow-tags
+          else
+            echo "Dry run: skipping push"
+          fi
+
+      - name: Build and prepare packages
+        run: |
+          npm run build:packages
+          npm run prepare:package
+
+      - name: Publish to npm
+        if: inputs.dry_run != true
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # 配置 npm registry
+          npm config set registry https://registry.npmjs.org/
+          
+          # 发布 packages
+          npm publish --workspace="packages/relay" --tag="latest"
+          # TODO: 根据实际的 workspace 结构调整
+
+      - name: Create GitHub Release
+        if: inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          BRANCH_NAME: ${{ steps.branch.outputs.branch_name }}
+          CHANGE_TYPE: ${{ steps.version.outputs.change_type }}
+          UPSTREAM_VERSION: ${{ steps.version.outputs.upstream_version }}
+        run: |
+          # 生成 release notes
+          RELEASE_NOTES="## 🚀 Relay Release $TAG
+
+**Change Type**: $CHANGE_TYPE
+**Based on upstream**: v$UPSTREAM_VERSION
+**Release date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+### Changes
+"
+          
+          if [[ "$CHANGE_TYPE" == "UPSTREAM_SYNC" ]]; then
+            RELEASE_NOTES+="
+- 🔄 Synchronized with upstream google-gemini/gemini-cli v$UPSTREAM_VERSION
+- 📦 Applied relay-specific patches and configurations
+- ✅ Verified compatibility with relay server functionality
+"
+          else
+            RELEASE_NOTES+="
+- 🛠️ Relay-specific feature improvements and bug fixes
+- 📚 See commit history for detailed changes
+"
+          fi
+          
+          RELEASE_NOTES+="
+
+### Installation
+\`\`\`bash
+npm install -g @goaskaway/gemini-cli-relay@$TAG
+\`\`\`
+
+🤖 Auto-generated release"
+
+          # 创建 release
+          gh release create "$TAG" \
+            --target "$BRANCH_NAME" \
+            --title "Release $TAG" \
+            --notes "$RELEASE_NOTES"
+
+      - name: Create summary
+        run: |
+          echo "## 🚀 Relay Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ steps.version.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Change Type**: ${{ steps.version.outputs.change_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Upstream Version**: v${{ steps.version.outputs.upstream_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dry Run**: ${{ inputs.dry_run }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release Time**: $(date)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Create issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag || 'N/A' }}
+        run: |
+          gh issue create \
+            --title "Relay Release Failed for $TAG on $(date +'%Y-%m-%d')" \
+            --body "The relay release workflow failed. See run details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --label "kind/bug,release-failure,relay"
