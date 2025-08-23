@@ -51,30 +51,36 @@ jobs:
           echo "After sync:"
           git log --oneline -5
 
-      - name: Remove all upstream workflows
+      - name: Remove all upstream workflows except whitelist
         run: |
-          # 删除除 sync-upstream.yml 外的所有上游工作流文件
-          workflows_to_remove=(
-            ".github/workflows/ci.yml"
-            ".github/workflows/stale.yml"
-            ".github/workflows/release.yml"
-            ".github/workflows/no-response.yml"
-            ".github/workflows/gemini-scheduled-pr-triage.yml"
-            ".github/workflows/gemini-scheduled-issue-triage.yml"
-            ".github/workflows/gemini-scheduled-issue-dedup.yml"
-            ".github/workflows/gemini-automated-issue-triage.yml"
-            ".github/workflows/gemini-automated-issue-dedup.yml"
-            ".github/workflows/e2e.yml"
-            ".github/workflows/docs-page-action.yml"
-            ".github/workflows/community-report.yml"
+          # 白名单：保留的工作流文件
+          workflows_to_keep=(
+            "sync-upstream.yml"
           )
           
-          for workflow in "${workflows_to_remove[@]}"; do
-            if [ -f "$workflow" ]; then
-              echo "Removing upstream workflow: $workflow"
-              rm "$workflow"
-            fi
-          done
+          # 删除 .github/workflows/ 目录下除白名单外的所有文件
+          if [ -d ".github/workflows" ]; then
+            for workflow in .github/workflows/*.yml; do
+              if [ -f "$workflow" ]; then
+                filename=$(basename "$workflow")
+                keep_file=false
+                
+                for keep in "${workflows_to_keep[@]}"; do
+                  if [ "$filename" = "$keep" ]; then
+                    keep_file=true
+                    break
+                  fi
+                done
+                
+                if [ "$keep_file" = false ]; then
+                  echo "Removing upstream workflow: $workflow"
+                  rm "$workflow"
+                else
+                  echo "Keeping workflow: $workflow"
+                fi
+              fi
+            done
+          fi
 
       - name: Force push to upstream-main
         run: |
