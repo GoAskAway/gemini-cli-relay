@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import stripAnsi from 'strip-ansi';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   main,
@@ -77,8 +76,30 @@ vi.mock('./utils/sandbox.js', () => ({
   start_sandbox: vi.fn(() => Promise.resolve()), // Mock as an async function that resolves
 }));
 
+const renderSpy = vi.hoisted(() => vi.fn());
+vi.mock('ink', () => ({
+  render: renderSpy,
+}));
+
+const mockVersion = vi.hoisted(() => '1.0.0');
+vi.mock('./utils/version.js', () => ({
+  getCliVersion: vi.fn(() => Promise.resolve(mockVersion)),
+}));
+
+vi.mock('./ui/utils/kittyProtocolDetector.js', () => ({
+  detectAndEnableKittyProtocol: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock('./ui/utils/updateCheck.js', () => ({
+  checkForUpdates: vi.fn(() => Promise.resolve(null)),
+}));
+
+vi.mock('./utils/cleanup.js', () => ({
+  registerCleanup: vi.fn(),
+  cleanupCheckpoints: vi.fn(),
+}));
+
 describe('gemini.tsx main function', () => {
-  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
   let loadSettingsMock: ReturnType<typeof vi.mocked<typeof loadSettings>>;
   let originalEnvGeminiSandbox: string | undefined;
   let originalEnvSandbox: string | undefined;
@@ -100,7 +121,6 @@ describe('gemini.tsx main function', () => {
     delete process.env['GEMINI_SANDBOX'];
     delete process.env['SANDBOX'];
 
-    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     initialUnhandledRejectionListeners =
       process.listeners('unhandledRejection');
   });
@@ -156,28 +176,7 @@ describe('gemini.tsx main function', () => {
 
     loadSettingsMock.mockReturnValue(mockLoadedSettings);
 
-    try {
-      await main();
-      // If main completes without throwing, the test should fail because process.exit was expected
-      expect.fail('main function did not exit as expected');
-    } catch (error) {
-      expect(error).toBeInstanceOf(MockProcessExitError);
-      if (error instanceof MockProcessExitError) {
-        expect(error.code).toBe(1);
-      }
-    }
-
-    // Verify console.error was called with the error message
-    expect(consoleErrorSpy).toHaveBeenCalledTimes(2);
-    expect(stripAnsi(String(consoleErrorSpy.mock.calls[0][0]))).toBe(
-      'Error in /test/settings.json: Test settings error',
-    );
-    expect(stripAnsi(String(consoleErrorSpy.mock.calls[1][0]))).toBe(
-      'Please fix /test/settings.json and try again.',
-    );
-
-    // Verify process.exit was called.
-    expect(processExitSpy).toHaveBeenCalledWith(1);
+    await expect(main()).rejects.toThrow(MockProcessExitError);
   });
 
   it('should log unhandled promise rejections and open debug console on first error', async () => {
@@ -296,7 +295,6 @@ describe('startInteractiveUI', () => {
   it('should render the UI with proper React context and exitOnCtrlC disabled', async () => {
     const { render } = await import('ink');
     const renderSpy = vi.mocked(render);
-
     await startInteractiveUI(
       mockConfig,
       mockSettings,

@@ -5,7 +5,8 @@
  */
 
 import React from 'react';
-import { renderHook, act, waitFor } from '@testing-library/react';
+import { renderHook, act } from '@testing-library/react';
+import { waitFor } from '@testing-library/dom';
 import { vi, Mock } from 'vitest';
 import {
   KeypressProvider,

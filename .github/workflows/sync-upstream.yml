@@ -1,0 +1,81 @@
+name: Sync Upstream
+
+on:
+  # 每天 UTC 02:00 (北京时间 10:00) 和 UTC 14:00 (北京时间 22:00) 自动运行
+  schedule:
+    - cron: '0 2 * * *'   # 北京时间 10:00
+    - cron: '0 14 * * *'  # 北京时间 22:00
+  # 允许手动触发
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # 获取所有分支和历史
+          fetch-depth: 0
+          # 使用 PAT token 以获取 workflow 写入权限
+          token: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/google-gemini/gemini-cli.git || true
+          git remote -v
+
+      - name: Fetch upstream changes
+        run: |
+          git fetch upstream
+          git fetch origin
+
+      - name: Switch to upstream-main branch
+        run: |
+          # 如果分支不存在，创建它
+          git checkout upstream-main || git checkout -b upstream-main
+
+      - name: Sync with upstream main
+        run: |
+          echo "Current branch: $(git branch --show-current)"
+          echo "Before sync:"
+          git log --oneline -5
+
+          # 重置到上游 main 分支的最新状态
+          git reset --hard upstream/main
+
+          echo "After sync:"
+          git log --oneline -5
+
+      - name: Verify sync completion
+        run: |
+          echo "Sync completed successfully"
+          echo "Current branch: $(git branch --show-current)"
+          echo "Latest upstream commit: $(git log --oneline -1)"
+          echo "Total commits synced: $(git rev-list --count HEAD)"
+
+      - name: Force push to upstream-main
+        run: |
+          # 使用 PAT token 获取 workflow 权限
+          if git diff --quiet origin/upstream-main 2>/dev/null; then
+            echo "No changes to push"
+          else
+            echo "Force pushing updates to upstream-main branch"
+            # 使用 --force 而不是 --force-with-lease，确保 100% 同步
+            git push origin upstream-main --force
+          fi
+
+      - name: Create summary
+        run: |
+          echo "## 📥 Upstream Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Source**: google-gemini/gemini-cli" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target**: upstream-main branch" >> $GITHUB_STEP_SUMMARY
+          echo "- **Latest commit**: $(git log --oneline -1)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total commits**: $(git rev-list --count HEAD)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Sync time**: $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ✅ Complete mirror sync" >> $GITHUB_STEP_SUMMARY

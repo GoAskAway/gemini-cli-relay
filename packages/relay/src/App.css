@@ -1,0 +1,51 @@
+html,
+body,
+#root,
+.App {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: #1e1e1e;
+  display: flex;
+  flex-direction: column;
+}
+
+.App .xterm {
+  flex-grow: 1;
+  padding: 10px;
+}
+
+.App .xterm .xterm-viewport {
+  width: 100% !important; /* Override default inline style */
+}
+
+.status-bar {
+  background-color: #333;
+  color: white;
+  padding: 4px 10px;
+  font-family: monospace;
+  font-size: 12px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.status-connected {
+  color: #4caf50;
+  font-weight: bold;
+}
+
+.status-disconnected {
+  color: #f44336;
+  font-weight: bold;
+}
+
+.status-connecting {
+  color: #ffeb3b;
+  font-weight: bold;
+}
+
+.status-error {
+  color: #f44336;
+  font-weight: bold;
+}
