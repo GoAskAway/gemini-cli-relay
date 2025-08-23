@@ -1,0 +1,18 @@
+
+> @google/gemini-cli@0.1.21 debug
+> node --inspect-brk dist/index.js server
+
+Starting inspector on 127.0.0.1:9229 failed: address already in use
+
+🚀 Starting Gemini CLI Server...
+✅ Server ready and listening at ws://127.0.0.1:8080
+   Waiting for a client to connect...
+
+No input provided via stdin.
+npm error Lifecycle script `debug` failed with error:
+npm error code 1
+npm error path /home/l/Workspace/gemini-cli-relay/packages/cli
+npm error workspace @google/gemini-cli@0.1.21
+npm error location /home/l/Workspace/gemini-cli-relay/packages/cli
+npm error command failed
+npm error command sh -c node --inspect-brk dist/index.js server

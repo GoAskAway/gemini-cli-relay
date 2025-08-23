@@ -1,0 +1,44 @@
+
+> @google/gemini-cli@0.1.21 start
+> node dist/index.js server
+
+
+🚀 Starting Gemini CLI Server...
+[DEBUG] CLI: Delegating hierarchical memory load to server for CWD: /home/l/Workspace/gemini-cli-relay/packages/cli (memoryImportFormat: tree)
+[DEBUG] [MemoryDiscovery] Loading server hierarchical memory for CWD: /home/l/Workspace/gemini-cli-relay/packages/cli (importFormat: tree)
+✅ Server ready and listening at ws://127.0.0.1:8080
+   Waiting for a client to connect...
+
+[DEBUG] [MemoryDiscovery] Searching for GEMINI.md starting from CWD: /home/l/Workspace/gemini-cli-relay/packages/cli
+[DEBUG] [MemoryDiscovery] Determined project root: /home/l/Workspace/gemini-cli-relay
+[DEBUG] [BfsFileSearch] Scanning [1/200]: batch of 1
+[DEBUG] [BfsFileSearch] Scanning [5/200]: batch of 4
+[DEBUG] [BfsFileSearch] Scanning [20/200]: batch of 15
+[DEBUG] [BfsFileSearch] Scanning [35/200]: batch of 15
+[DEBUG] [BfsFileSearch] Scanning [50/200]: batch of 15
+[DEBUG] [BfsFileSearch] Scanning [62/200]: batch of 12
+[DEBUG] [BfsFileSearch] Scanning [65/200]: batch of 3
+[DEBUG] [MemoryDiscovery] Final ordered GEMINI.md paths to read: ["/home/l/Workspace/gemini-cli-relay/GEMINI.md"]
+[DEBUG] [MemoryDiscovery] Successfully read and processed imports: /home/l/Workspace/gemini-cli-relay/GEMINI.md (Length: 19021)
+[DEBUG] [MemoryDiscovery] Combined instructions length: 19103
+[DEBUG] [MemoryDiscovery] Combined instructions (snippet): --- Context from: ../../GEMINI.md ---
+## Building and running
+
+Before submitting any changes, it is crucial to validate them by running the full preflight check. This command will build the repository, run all tests, check for type errors, and lint the code.
+
+To run the full suite of checks, execute the following command:
+
+```bash
+npm run preflight
+```
+
+This single command ensures that your changes meet all the quality gates of the project. While you can run the individual steps (`build`, `test`...
+Flushing log events to Clearcut.
+No input provided via stdin.
+npm error Lifecycle script `start` failed with error:
+npm error code 1
+npm error path /home/l/Workspace/gemini-cli-relay/packages/cli
+npm error workspace @google/gemini-cli@0.1.21
+npm error location /home/l/Workspace/gemini-cli-relay/packages/cli
+npm error command failed
+npm error command sh -c node dist/index.js server

@@ -16,7 +16,8 @@ jobs:
         with:
           # 获取所有分支和历史
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # 使用 PAT token 以获取 workflow 写入权限
+          token: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Configure git
         run: |
@@ -50,14 +51,33 @@ jobs:
           echo "After sync:"
           git log --oneline -5
 
-      - name: Push changes
+      - name: Remove conflicting workflows
         run: |
-          # 检查是否有更新
-          if git diff --quiet origin/upstream-main; then
+          # 删除有权限冲突的工作流文件
+          workflows_to_remove=(
+            ".github/workflows/gemini-scheduled-issue-triage.yml"
+            ".github/workflows/gemini-scheduled-pr-triage.yml"
+            ".github/workflows/gemini-scheduled-issue-dedup.yml"
+            ".github/workflows/gemini-automated-issue-triage.yml"
+            ".github/workflows/gemini-automated-issue-dedup.yml"
+          )
+          
+          for workflow in "${workflows_to_remove[@]}"; do
+            if [ -f "$workflow" ]; then
+              echo "Removing conflicting workflow: $workflow"
+              rm "$workflow"
+            fi
+          done
+
+      - name: Force push to upstream-main
+        run: |
+          # 使用 PAT token 获取 workflow 权限
+          if git diff --quiet origin/upstream-main 2>/dev/null; then
             echo "No changes to push"
           else
-            echo "Pushing updates to upstream-main branch"
-            git push origin upstream-main --force-with-lease
+            echo "Force pushing updates to upstream-main branch"
+            # 使用 --force 而不是 --force-with-lease，确保 100% 同步
+            git push origin upstream-main --force
           fi
 
       - name: Create summary
