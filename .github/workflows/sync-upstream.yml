@@ -50,13 +50,58 @@ jobs:
           echo "Before sync:"
           git log --oneline -5
 
+          # 获取当前 upstream-main 分支的版本信息
+          CURRENT_COMMIT=$(git rev-parse HEAD)
+          echo "Current upstream-main commit: $CURRENT_COMMIT"
+          
+          # 尝试从当前 commit 获取版本信息（如果有 tag 的话）
+          CURRENT_VERSION=""
+          if git describe --tags --exact-match HEAD 2>/dev/null; then
+            CURRENT_VERSION=$(git describe --tags --exact-match HEAD 2>/dev/null)
+            echo "Current version tag: $CURRENT_VERSION"
+          else
+            echo "Current commit has no version tag"
+          fi
+
           # 获取上游最新稳定发布版本
           LATEST_RELEASE=$(gh api repos/google-gemini/gemini-cli/releases --jq '[.[] | select(.prerelease == false and (.tag_name | contains("nightly") or contains("preview")) | not)] | .[0].tag_name')
           echo "Latest upstream release: $LATEST_RELEASE"
           
+          # 版本比较：如果当前版本比最新版本新，则跳过同步
+          if [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VERSION" != "$LATEST_RELEASE" ]; then
+            # 使用语义化版本比较
+            CURRENT_VER_NUM=$(echo "$CURRENT_VERSION" | sed 's/^v//' | sed 's/-.*$//')
+            LATEST_VER_NUM=$(echo "$LATEST_RELEASE" | sed 's/^v//' | sed 's/-.*$//')
+            
+            echo "Comparing versions: $CURRENT_VER_NUM vs $LATEST_VER_NUM"
+            
+            # 使用 sort -V 进行版本比较
+            HIGHER_VERSION=$(printf "%s\n%s\n" "$CURRENT_VER_NUM" "$LATEST_VER_NUM" | sort -V | tail -n 1)
+            
+            if [ "$CURRENT_VER_NUM" = "$HIGHER_VERSION" ] && [ "$CURRENT_VER_NUM" != "$LATEST_VER_NUM" ]; then
+              echo "⚠️  Current version ($CURRENT_VERSION) is newer than upstream ($LATEST_RELEASE)"
+              echo "Skipping sync to prevent rollback. This usually indicates manual intervention."
+              echo "should_skip=true" >> $GITHUB_OUTPUT
+              echo "skip_reason=version_rollback_prevention" >> $GITHUB_OUTPUT
+              echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+              echo "latest_version=$LATEST_RELEASE" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          fi
+          
           # 获取该发布版本对应的 commit hash
           RELEASE_COMMIT=$(gh api "repos/google-gemini/gemini-cli/git/refs/tags/$LATEST_RELEASE" --jq '.object.sha')
           echo "Release commit hash: $RELEASE_COMMIT"
+          
+          # 检查是否是同一个 commit（避免不必要的操作）
+          if [ "$CURRENT_COMMIT" = "$RELEASE_COMMIT" ]; then
+            echo "✅ Already at the latest release commit"
+            echo "should_skip=true" >> $GITHUB_OUTPUT
+            echo "skip_reason=already_up_to_date" >> $GITHUB_OUTPUT
+            echo "release_version=$LATEST_RELEASE" >> $GITHUB_OUTPUT
+            echo "release_commit=$RELEASE_COMMIT" >> $GITHUB_OUTPUT
+            exit 0
+          fi
           
           # 获取 commit 的详细信息
           COMMIT_INFO=$(gh api "repos/google-gemini/gemini-cli/commits/$RELEASE_COMMIT" --jq '{message: .commit.message, author: .commit.author.name, date: .commit.author.date}')
@@ -71,6 +116,7 @@ jobs:
           git log --oneline -5
           
           # 输出到后续步骤
+          echo "should_skip=false" >> $GITHUB_OUTPUT
           echo "release_version=$LATEST_RELEASE" >> $GITHUB_OUTPUT
           echo "release_commit=$RELEASE_COMMIT" >> $GITHUB_OUTPUT
 
