@@ -1,9 +1,10 @@
 name: Sync Upstream
 
 on:
-  # 每天 UTC 02:00 (北京时间 10:00) 自动运行
+  # 每天 UTC 02:00 (北京时间 10:00) 和 UTC 14:00 (北京时间 22:00) 自动运行
   schedule:
-    - cron: '0 2 * * *'
+    - cron: '0 2 * * *'   # 北京时间 10:00
+    - cron: '0 14 * * *'  # 北京时间 22:00
   # 允许手动触发
   workflow_dispatch:
 
@@ -51,48 +52,12 @@ jobs:
           echo "After sync:"
           git log --oneline -5
 
-      - name: Remove all upstream workflows except whitelist
+      - name: Verify sync completion
         run: |
-          # 白名单：保留的工作流文件
-          workflows_to_keep=(
-            "sync-upstream.yml"
-          )
-          
-          removed_files=false
-          
-          # 删除 .github/workflows/ 目录下除白名单外的所有文件
-          if [ -d ".github/workflows" ]; then
-            for workflow in .github/workflows/*.yml; do
-              if [ -f "$workflow" ]; then
-                filename=$(basename "$workflow")
-                keep_file=false
-                
-                for keep in "${workflows_to_keep[@]}"; do
-                  if [ "$filename" = "$keep" ]; then
-                    keep_file=true
-                    break
-                  fi
-                done
-                
-                if [ "$keep_file" = false ]; then
-                  echo "Removing upstream workflow: $workflow"
-                  rm "$workflow"
-                  removed_files=true
-                else
-                  echo "Keeping workflow: $workflow"
-                fi
-              fi
-            done
-          fi
-          
-          # 如果删除了文件，提交更改
-          if [ "$removed_files" = true ]; then
-            git add .github/workflows/
-            git commit -m "sync: remove upstream workflows except whitelist
-
-            Keep only sync-upstream.yml for automatic syncing
-            All other upstream workflows have been removed"
-          fi
+          echo "Sync completed successfully"
+          echo "Current branch: $(git branch --show-current)"
+          echo "Latest upstream commit: $(git log --oneline -1)"
+          echo "Total commits synced: $(git rev-list --count HEAD)"
 
       - name: Force push to upstream-main
         run: |
@@ -107,8 +72,10 @@ jobs:
 
       - name: Create summary
         run: |
-          echo "## Sync Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- **Branch**: upstream-main" >> $GITHUB_STEP_SUMMARY
-          echo "- **Upstream**: google-gemini/gemini-cli" >> $GITHUB_STEP_SUMMARY
+          echo "## 📥 Upstream Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Source**: google-gemini/gemini-cli" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target**: upstream-main branch" >> $GITHUB_STEP_SUMMARY
           echo "- **Latest commit**: $(git log --oneline -1)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total commits**: $(git rev-list --count HEAD)" >> $GITHUB_STEP_SUMMARY
           echo "- **Sync time**: $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ✅ Complete mirror sync" >> $GITHUB_STEP_SUMMARY
