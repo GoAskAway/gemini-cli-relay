@@ -4,11 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
 import * as os from 'os';
 import * as path from 'path';
 import { ShellTool, EditTool, WriteFileTool } from '@google/gemini-cli-core';
-import { loadCliConfig, parseArguments } from './config.js';
+import { loadCliConfig, parseArguments, CliArgs } from './config.js';
 import { Settings } from './settings.js';
 import { Extension } from './extension.js';
 import * as ServerConfig from '@google/gemini-cli-core';
@@ -664,6 +664,7 @@ describe('Hierarchical Memory Loading (config.ts) - Placeholder Suite', () => {
     const settings: Settings = {};
     const extensions: Extension[] = [
       {
+        path: '/path/to/ext1',
         config: {
           name: 'ext1',
           version: '1.0.0',
@@ -671,6 +672,7 @@ describe('Hierarchical Memory Loading (config.ts) - Placeholder Suite', () => {
         contextFiles: ['/path/to/ext1/GEMINI.md'],
       },
       {
+        path: '/path/to/ext2',
         config: {
           name: 'ext2',
           version: '1.0.0',
@@ -678,6 +680,7 @@ describe('Hierarchical Memory Loading (config.ts) - Placeholder Suite', () => {
         contextFiles: [],
       },
       {
+        path: '/path/to/ext3',
         config: {
           name: 'ext3',
           version: '1.0.0',
@@ -743,6 +746,7 @@ describe('mergeMcpServers', () => {
     };
     const extensions: Extension[] = [
       {
+        path: '/path/to/ext1',
         config: {
           name: 'ext1',
           version: '1.0.0',
@@ -779,6 +783,7 @@ describe('mergeExcludeTools', () => {
     const settings: Settings = { excludeTools: ['tool1', 'tool2'] };
     const extensions: Extension[] = [
       {
+        path: '/path/to/ext1',
         config: {
           name: 'ext1',
           version: '1.0.0',
@@ -787,6 +792,7 @@ describe('mergeExcludeTools', () => {
         contextFiles: [],
       },
       {
+        path: '/path/to/ext2',
         config: {
           name: 'ext2',
           version: '1.0.0',
@@ -813,6 +819,7 @@ describe('mergeExcludeTools', () => {
     const settings: Settings = { excludeTools: ['tool1', 'tool2'] };
     const extensions: Extension[] = [
       {
+        path: '/path/to/ext1',
         config: {
           name: 'ext1',
           version: '1.0.0',
@@ -839,6 +846,7 @@ describe('mergeExcludeTools', () => {
     const settings: Settings = { excludeTools: ['tool1'] };
     const extensions: Extension[] = [
       {
+        path: '/path/to/ext1',
         config: {
           name: 'ext1',
           version: '1.0.0',
@@ -847,6 +855,7 @@ describe('mergeExcludeTools', () => {
         contextFiles: [],
       },
       {
+        path: '/path/to/ext2',
         config: {
           name: 'ext2',
           version: '1.0.0',
@@ -920,6 +929,7 @@ describe('mergeExcludeTools', () => {
     const settings: Settings = {};
     const extensions: Extension[] = [
       {
+        path: '/path/to/ext',
         config: {
           name: 'ext1',
           version: '1.0.0',
@@ -946,6 +956,7 @@ describe('mergeExcludeTools', () => {
     const settings: Settings = { excludeTools: ['tool1'] };
     const extensions: Extension[] = [
       {
+        path: '/path/to/ext',
         config: {
           name: 'ext1',
           version: '1.0.0',
@@ -1160,7 +1171,12 @@ describe('Approval mode tool exclusion logic', () => {
     const extensions: Extension[] = [];
 
     await expect(
-      loadCliConfig(settings, extensions, 'test-session', invalidArgv),
+      loadCliConfig(
+        settings,
+        extensions,
+        'test-session',
+        invalidArgv as CliArgs,
+      ),
     ).rejects.toThrow(
       'Invalid approval mode: invalid_mode. Valid values are: yolo, auto_edit, default',
     );
@@ -1315,10 +1331,12 @@ describe('loadCliConfig with allowed-mcp-server-names', () => {
 describe('loadCliConfig extensions', () => {
   const mockExtensions: Extension[] = [
     {
+      path: '/path/to/ext1',
       config: { name: 'ext1', version: '1.0.0' },
       contextFiles: ['/path/to/ext1.md'],
     },
     {
+      path: '/path/to/ext2',
       config: { name: 'ext2', version: '1.0.0' },
       contextFiles: ['/path/to/ext2.md'],
     },
@@ -1921,14 +1939,12 @@ describe('loadCliConfig trustedFolder', () => {
     description,
   } of testCases) {
     it(`should be correct for: ${description}`, async () => {
-      (isWorkspaceTrusted as vi.Mock).mockImplementation(
-        (settings: Settings) => {
-          const featureIsEnabled =
-            (settings.folderTrustFeature ?? false) &&
-            (settings.folderTrust ?? true);
-          return featureIsEnabled ? mockTrustValue : true;
-        },
-      );
+      (isWorkspaceTrusted as Mock).mockImplementation((settings: Settings) => {
+        const featureIsEnabled =
+          (settings.folderTrustFeature ?? false) &&
+          (settings.folderTrust ?? true);
+        return featureIsEnabled ? mockTrustValue : true;
+      });
       const argv = await parseArguments();
       const settings: Settings = { folderTrustFeature, folderTrust };
       const config = await loadCliConfig(settings, [], 'test-session', argv);
