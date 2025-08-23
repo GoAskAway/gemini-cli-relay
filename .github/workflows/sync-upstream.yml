@@ -35,8 +35,8 @@ jobs:
         run: |
           git fetch upstream --tags
           git fetch origin --tags
-          # 获取所有分支的最新信息（用于访问 release commits）
-          git fetch upstream --all
+          # 获取 main 分支的最新信息（用于访问 release commits）
+          git fetch upstream main
 
       - name: Switch to upstream-main branch
         run: |
