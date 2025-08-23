@@ -51,20 +51,27 @@ jobs:
           echo "After sync:"
           git log --oneline -5
 
-      - name: Remove conflicting workflows
+      - name: Remove all upstream workflows
         run: |
-          # 删除有权限冲突的工作流文件
+          # 删除除 sync-upstream.yml 外的所有上游工作流文件
           workflows_to_remove=(
-            ".github/workflows/gemini-scheduled-issue-triage.yml"
+            ".github/workflows/ci.yml"
+            ".github/workflows/stale.yml"
+            ".github/workflows/release.yml"
+            ".github/workflows/no-response.yml"
             ".github/workflows/gemini-scheduled-pr-triage.yml"
+            ".github/workflows/gemini-scheduled-issue-triage.yml"
             ".github/workflows/gemini-scheduled-issue-dedup.yml"
             ".github/workflows/gemini-automated-issue-triage.yml"
             ".github/workflows/gemini-automated-issue-dedup.yml"
+            ".github/workflows/e2e.yml"
+            ".github/workflows/docs-page-action.yml"
+            ".github/workflows/community-report.yml"
           )
           
           for workflow in "${workflows_to_remove[@]}"; do
             if [ -f "$workflow" ]; then
-              echo "Removing conflicting workflow: $workflow"
+              echo "Removing upstream workflow: $workflow"
               rm "$workflow"
             fi
           done
