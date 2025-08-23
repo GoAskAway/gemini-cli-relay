@@ -1,9 +1,11 @@
 name: Sync Upstream
 
 on:
-  # 每天 UTC 20:00 (北京时间 04:00) 自动运行
+  # 每周三 UTC 06:00 (北京时间 14:00) - 上游稳定版本通常周二发布
+  # 每天 UTC 12:00 (北京时间 20:00) - 日常检查但频率较低
   schedule:
-    - cron: '0 20 * * *'   # 北京时间 04:00
+    - cron: '0 6 * * 3'   # 每周三 14:00 Beijing time
+    - cron: '0 12 * * *'  # 每天 20:00 Beijing time  
   # 允许手动触发
   workflow_dispatch:
 
@@ -29,34 +31,58 @@ jobs:
           git remote add upstream https://github.com/google-gemini/gemini-cli.git || true
           git remote -v
 
-      - name: Fetch upstream changes
+      - name: Fetch upstream tags and releases
         run: |
-          git fetch upstream
-          git fetch origin
+          git fetch upstream --tags
+          git fetch origin --tags
+          # 获取所有分支的最新信息（用于访问 release commits）
+          git fetch upstream --all
 
       - name: Switch to upstream-main branch
         run: |
           # 如果分支不存在，创建它
           git checkout upstream-main || git checkout -b upstream-main
 
-      - name: Sync with upstream main
+      - name: Sync with upstream release version
+        id: sync_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Current branch: $(git branch --show-current)"
           echo "Before sync:"
           git log --oneline -5
 
-          # 重置到上游 main 分支的最新状态
-          git reset --hard upstream/main
-
+          # 获取上游最新稳定发布版本
+          LATEST_RELEASE=$(gh api repos/google-gemini/gemini-cli/releases --jq '[.[] | select(.prerelease == false and (.tag_name | contains("nightly") or contains("preview")) | not)] | .[0].tag_name')
+          echo "Latest upstream release: $LATEST_RELEASE"
+          
+          # 获取该发布版本对应的 commit hash
+          RELEASE_COMMIT=$(gh api "repos/google-gemini/gemini-cli/git/refs/tags/$LATEST_RELEASE" --jq '.object.sha')
+          echo "Release commit hash: $RELEASE_COMMIT"
+          
+          # 获取 commit 的详细信息
+          COMMIT_INFO=$(gh api "repos/google-gemini/gemini-cli/commits/$RELEASE_COMMIT" --jq '{message: .commit.message, author: .commit.author.name, date: .commit.author.date}')
+          echo "Commit info: $COMMIT_INFO"
+          
+          # 重置到发布版本的 commit（而不是 main 分支顶端）
+          git reset --hard $RELEASE_COMMIT
+          
           echo "After sync:"
+          echo "- Release version: $LATEST_RELEASE"
+          echo "- Commit: $RELEASE_COMMIT"
           git log --oneline -5
+          
+          # 输出到后续步骤
+          echo "release_version=$LATEST_RELEASE" >> $GITHUB_OUTPUT
+          echo "release_commit=$RELEASE_COMMIT" >> $GITHUB_OUTPUT
 
       - name: Verify sync completion
         run: |
           echo "Sync completed successfully"
           echo "Current branch: $(git branch --show-current)"
-          echo "Latest upstream commit: $(git log --oneline -1)"
-          echo "Total commits synced: $(git rev-list --count HEAD)"
+          echo "Release version: ${{ steps.sync_release.outputs.release_version }}"
+          echo "Release commit: ${{ steps.sync_release.outputs.release_commit }}"
+          echo "Current HEAD: $(git log --oneline -1)"
 
       - name: Check for changes and push to upstream-main
         id: check_changes
@@ -134,15 +160,16 @@ jobs:
 
       - name: Create summary
         run: |
-          echo "## 📥 Upstream Sync Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- **Source**: google-gemini/gemini-cli" >> $GITHUB_STEP_SUMMARY
+          echo "## 📥 Upstream Release Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Source**: google-gemini/gemini-cli releases" >> $GITHUB_STEP_SUMMARY
           echo "- **Target**: upstream-main branch" >> $GITHUB_STEP_SUMMARY
-          echo "- **Latest commit**: $(git log --oneline -1)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Total commits**: $(git rev-list --count HEAD)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release version**: ${{ steps.sync_release.outputs.release_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release commit**: ${{ steps.sync_release.outputs.release_commit }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Sync strategy**: Release-only (stable versions)" >> $GITHUB_STEP_SUMMARY
           echo "- **Sync time**: $(date)" >> $GITHUB_STEP_SUMMARY
           
           if [ "${{ steps.check_changes.outputs.has_changes }}" = "true" ]; then
-            echo "- **Status**: ✅ Changes detected, PR created to main" >> $GITHUB_STEP_SUMMARY
+            echo "- **Status**: ✅ New release detected, PR created to main" >> $GITHUB_STEP_SUMMARY
           else
-            echo "- **Status**: ✅ No changes, already up to date" >> $GITHUB_STEP_SUMMARY
+            echo "- **Status**: ✅ No new release, already up to date" >> $GITHUB_STEP_SUMMARY
           fi
