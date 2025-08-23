@@ -58,6 +58,8 @@ jobs:
             "sync-upstream.yml"
           )
           
+          removed_files=false
+          
           # 删除 .github/workflows/ 目录下除白名单外的所有文件
           if [ -d ".github/workflows" ]; then
             for workflow in .github/workflows/*.yml; do
@@ -75,11 +77,21 @@ jobs:
                 if [ "$keep_file" = false ]; then
                   echo "Removing upstream workflow: $workflow"
                   rm "$workflow"
+                  removed_files=true
                 else
                   echo "Keeping workflow: $workflow"
                 fi
               fi
             done
+          fi
+          
+          # 如果删除了文件，提交更改
+          if [ "$removed_files" = true ]; then
+            git add .github/workflows/
+            git commit -m "sync: remove upstream workflows except whitelist
+
+            Keep only sync-upstream.yml for automatic syncing
+            All other upstream workflows have been removed"
           fi
 
       - name: Force push to upstream-main
