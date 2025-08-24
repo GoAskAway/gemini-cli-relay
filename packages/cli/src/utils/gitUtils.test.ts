@@ -144,6 +144,6 @@ describe('getLatestRelease', async () => {
         json: () => Promise.resolve({ tag_name: 'v1.2.3' }),
       } as Response),
     );
-    expect(getLatestGitHubRelease()).resolves.toBe('v1.2.3');
+    await expect(getLatestGitHubRelease()).resolves.toBe('v1.2.3');
   });
 });

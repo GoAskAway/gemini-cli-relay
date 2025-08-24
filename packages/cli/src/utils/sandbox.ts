@@ -204,7 +204,7 @@ export async function start_sandbox(
 
       const profile = (process.env['SEATBELT_PROFILE'] ??= 'permissive-open');
       let profileFile = fileURLToPath(
-        new URL(`sandbox-macos-${profile}.sb`, import.meta.url),
+        new URL(`./sandbox-macos-${profile}.sb`, import.meta.url),
       );
       // if profile name is not recognized, then look for file under project settings directory
       if (!BUILTIN_SEATBELT_PROFILES.includes(profile)) {

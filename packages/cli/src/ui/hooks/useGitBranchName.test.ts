@@ -16,10 +16,11 @@ import {
 import { act } from 'react';
 import { renderHook } from '@testing-library/react';
 import { useGitBranchName } from './useGitBranchName.js';
-import { fs, vol } from 'memfs'; // For mocking fs
+import { fs, vol, Volume } from 'memfs'; // For mocking fs
 import { EventEmitter } from 'node:events';
 import { exec as mockExec, type ChildProcess } from 'node:child_process';
-import type { FSWatcher } from 'memfs/lib/volume.js';
+
+type FSWatcher = ReturnType<Volume['watch']>;
 
 // Mock child_process
 vi.mock('child_process');

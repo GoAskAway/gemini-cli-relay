@@ -146,10 +146,12 @@ export const setupGithubCommand: SlashCommand = {
           const response = await fetch(endpoint, {
             method: 'GET',
             dispatcher: proxy ? new ProxyAgent(proxy) : undefined,
-            signal: AbortSignal.any([
-              AbortSignal.timeout(30_000),
-              abortController.signal,
-            ]),
+            signal: AbortSignal.any
+              ? AbortSignal.any([
+                  AbortSignal.timeout(30_000),
+                  abortController.signal,
+                ])
+              : AbortSignal.timeout(30_000),
           } as RequestInit);
 
           if (!response.ok) {

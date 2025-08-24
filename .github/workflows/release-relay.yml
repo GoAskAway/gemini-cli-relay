@@ -1,25 +1,7 @@
-name: 'Release Relay'
+name: Release Relay
 
 on:
-  workflow_call:
-    inputs:
-      change_type:
-        description: 'Type of change: UPSTREAM_SYNC, RELAY_FEATURE, MANUAL'
-        type: string
-        default: 'RELAY_FEATURE'
-      upstream_version:
-        description: 'Upstream version (for UPSTREAM_SYNC)'
-        type: string
-        required: false
-      force_version:
-        description: 'Force specific version (for MANUAL)'
-        type: string
-        required: false
-      dry_run:
-        description: 'Run without publishing'
-        type: boolean
-        default: false
-  
+  # 只允许手动触发，移除所有自动化发布
   workflow_dispatch:
     inputs:
       change_type:
@@ -27,9 +9,9 @@ on:
         type: choice
         options:
           - RELAY_FEATURE
-          - UPSTREAM_SYNC  
+          - UPSTREAM_SYNC
           - MANUAL
-        default: 'RELAY_FEATURE'
+        default: RELAY_FEATURE
       upstream_version:
         description: 'Upstream version (for UPSTREAM_SYNC only)'
         type: string
@@ -48,15 +30,15 @@ jobs:
     runs-on: ubuntu-latest
     if: github.repository == 'GoAskAway/gemini-cli-relay'
     environment:
-      name: 'relay-release'
+      name: relay-release
       url: '${{ github.server_url }}/${{ github.repository }}/releases/tag/v${{ steps.version.outputs.version }}'
-    
+
     permissions:
       contents: write
       packages: write
       id-token: write
       issues: write
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -82,12 +64,12 @@ jobs:
         run: |
           VERSION_INFO=$(node packages/relay/scripts/get-relay-version.js next)
           echo "Version info: $VERSION_INFO"
-          
+
           VERSION=$(echo "$VERSION_INFO" | jq -r '.version')
           UPSTREAM_VERSION=$(echo "$VERSION_INFO" | jq -r '.upstream_version')
           RELAY_INCREMENT=$(echo "$VERSION_INFO" | jq -r '.relay_increment')
           CHANGE_TYPE=$(echo "$VERSION_INFO" | jq -r '.change_type')
-          
+
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "upstream_version=$UPSTREAM_VERSION" >> $GITHUB_OUTPUT
           echo "relay_increment=$RELAY_INCREMENT" >> $GITHUB_OUTPUT
@@ -122,7 +104,7 @@ jobs:
         run: |
           # 更新主 package.json
           npm version "$VERSION" --no-git-tag-version --allow-same-version
-          
+
           # 更新 relay 元数据
           node -e "
             const fs = require('fs');
@@ -136,7 +118,7 @@ jobs:
             };
             fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
-          
+
           # 更新 workspaces 中的版本
           npm run release:version "$VERSION"
 
@@ -148,7 +130,7 @@ jobs:
         run: |
           git add package.json package-lock.json packages/*/package.json
           git commit -m "chore(release): $TAG"
-          
+
           if [[ "$DRY_RUN" != "true" ]]; then
             git push --set-upstream origin "$BRANCH_NAME" --follow-tags
           else
@@ -168,7 +150,7 @@ jobs:
         run: |
           # 配置 npm registry
           npm config set registry https://registry.npmjs.org/
-          
+
           # 发布 packages
           npm publish --workspace="packages/relay" --tag="latest"
           # TODO: 根据实际的 workspace 结构调整
@@ -185,34 +167,20 @@ jobs:
           # 生成 release notes
           RELEASE_NOTES="## 🚀 Relay Release $TAG
 
-**Change Type**: $CHANGE_TYPE
-**Based on upstream**: v$UPSTREAM_VERSION
-**Release date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **Change Type**: $CHANGE_TYPE
+          **Based on upstream**: v$UPSTREAM_VERSION
+          **Release date**: $(date -u +\"%Y-%m-%d %H:%M:%S UTC\")
 
-### Changes
-"
-          
+          ### Changes
+          "
+
           if [[ "$CHANGE_TYPE" == "UPSTREAM_SYNC" ]]; then
-            RELEASE_NOTES+="
-- 🔄 Synchronized with upstream google-gemini/gemini-cli v$UPSTREAM_VERSION
-- 📦 Applied relay-specific patches and configurations
-- ✅ Verified compatibility with relay server functionality
-"
+            RELEASE_NOTES+="\n- 🔄 Synchronized with upstream google-gemini/gemini-cli v$UPSTREAM_VERSION\n- 📦 Applied relay-specific patches and configurations\n- ✅ Verified compatibility with relay server functionality\n"
           else
-            RELEASE_NOTES+="
-- 🛠️ Relay-specific feature improvements and bug fixes
-- 📚 See commit history for detailed changes
-"
+            RELEASE_NOTES+="\n- 🛠️ Relay-specific feature improvements and bug fixes\n- 📚 See commit history for detailed changes\n"
           fi
-          
-          RELEASE_NOTES+="
 
-### Installation
-\`\`\`bash
-npm install -g @goaskaway/gemini-cli-relay@$TAG
-\`\`\`
-
-🤖 Auto-generated release"
+          RELEASE_NOTES+="\n\n### Installation\n\`\`\`bash\nnpm install -g @goaskaway/gemini-cli-relay@$TAG\n\`\`\`\n\n🤖 Auto-generated release"
 
           # 创建 release
           gh release create "$TAG" \

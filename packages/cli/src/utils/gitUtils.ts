@@ -68,7 +68,9 @@ export const getLatestGitHubRelease = async (
         'X-GitHub-Api-Version': '2022-11-28',
       },
       dispatcher: proxy ? new ProxyAgent(proxy) : undefined,
-      signal: AbortSignal.any([AbortSignal.timeout(30_000), controller.signal]),
+      signal: AbortSignal.any
+        ? AbortSignal.any([AbortSignal.timeout(30_000), controller.signal])
+        : AbortSignal.timeout(30_000),
     } as RequestInit);
 
     if (!response.ok) {
