@@ -202,6 +202,41 @@ export function redirectConsoleOutput(stdoutStream: Writable, stderrStream: Writ
 }
 
 /**
+ * Safe wrapper that runs nonInteractive without allowing process.exit
+ */
+async function runNonInteractiveSafe(config: Config, input: string, prompt_id: string): Promise<void> {
+  // Temporarily override process.exit to prevent it from terminating the relay loop
+  const originalExit = process.exit;
+  let exitCalled = false;
+  let exitCode = 0;
+  
+  process.exit = ((code?: number) => {
+    exitCalled = true;
+    exitCode = code || 0;
+    throw new Error(`NonInteractive tried to exit with code ${exitCode}`);
+  }) as typeof process.exit;
+  
+  try {
+    const { runNonInteractive } = await import('../nonInteractiveCli.js');
+    await runNonInteractive(config, input, prompt_id);
+  } catch (error) {
+    if (exitCalled) {
+      // This was a controlled exit from runNonInteractive, not a real error
+      if (exitCode !== 0) {
+        throw new Error(`Processing failed with exit code ${exitCode}`);
+      }
+      // Exit code 0 means success, continue normally
+    } else {
+      // This was a real error, re-throw it
+      throw error;
+    }
+  } finally {
+    // Always restore the original process.exit
+    process.exit = originalExit;
+  }
+}
+
+/**
  * Runs the relay interaction loop for multi-turn conversations
  */
 export async function runRelayLoop(
@@ -211,7 +246,6 @@ export async function runRelayLoop(
   stdoutStream: Writable,
   stderrStream: Writable
 ): Promise<void> {
-  const { runNonInteractive } = await import('../nonInteractiveCli.js');
   let conversationHistory: string[] = [];
   
   stdoutStream.write('Relay mode started. Send messages through stdin pipe.\n');
@@ -229,42 +263,27 @@ export async function runRelayLoop(
       }
       
       stderrStream.write(`Received: ${input.substring(0, 100)}${input.length > 100 ? '...' : ''}\n`);
+      stderrStream.write('Processing...\n');
       
       // Add to conversation history
       conversationHistory.push(`User: ${input}`);
       
-      // Create a temporary output capture
-      let responseOutput = '';
-      const originalWrite = process.stdout.write;
-      
-      // Capture stdout during processing
-      process.stdout.write = function(chunk: any, encoding?: any, cb?: any): boolean {
-        responseOutput += chunk.toString();
-        return stdoutStream.write(chunk, encoding, cb);
-      };
+      // Process the input using our safe version
+      const prompt_id = Math.random().toString(16).slice(2);
       
       try {
-        // Process the input using the non-interactive CLI
-        const prompt_id = Math.random().toString(16).slice(2);
-        
-        // Run the query
-        await runNonInteractive(config, input, prompt_id);
-        
-        // Add response to history
-        if (responseOutput.trim()) {
-          conversationHistory.push(`Assistant: ${responseOutput.trim()}`);
-        }
-        
-      } finally {
-        // Restore original stdout
-        process.stdout.write = originalWrite;
+        await runNonInteractiveSafe(config, input, prompt_id);
+        stderrStream.write('Response completed.\n');
+      } catch (error) {
+        stderrStream.write(`Error processing input: ${error}\n`);
+        stdoutStream.write('Sorry, there was an error processing your request.\n');
       }
       
       stdoutStream.write('\n--- End of response ---\n');
       
     } catch (error) {
-      stderrStream.write(`Error processing input: ${error}\n`);
-      stdoutStream.write('Sorry, there was an error processing your request.\n');
+      stderrStream.write(`Error in relay loop: ${error}\n`);
+      stdoutStream.write('Sorry, there was an error in the relay loop.\n');
     }
   }
 }

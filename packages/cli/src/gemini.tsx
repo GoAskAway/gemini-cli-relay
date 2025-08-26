@@ -270,44 +270,46 @@ export async function main() {
     ...(await getUserStartupWarnings(workspaceRoot)),
   ];
 
-  // Setup relay mode if enabled
-  let relayCleanup: (() => void) | null = null;
+  // Store relay configuration for later use
+  let relayConfig: RelayConfig | null = null;
   if (argv.relay && argv.relayStdinPipe && argv.relayStdoutPipe && argv.relayStderrPipe) {
-    const relayConfig: RelayConfig = {
+    relayConfig = {
       stdinPipe: argv.relayStdinPipe,
       stdoutPipe: argv.relayStdoutPipe,
       stderrPipe: argv.relayStderrPipe,
     };
-    
-    try {
-      const { stdinStream, stdoutStream, stderrStream, cleanup } = await setupRelayStreams(relayConfig);
-      
-      // Redirect console output to pipes
-      const consoleCleanup = redirectConsoleOutput(stdoutStream, stderrStream);
-      
-      // Combined cleanup function
-      relayCleanup = () => {
-        consoleCleanup();
-        cleanup();
-      };
-      
-      // Register cleanup on process exit
-      registerCleanup(relayCleanup);
-      
-      console.log(`Relay mode enabled: stdin=${relayConfig.stdinPipe}, stdout=${relayConfig.stdoutPipe}, stderr=${relayConfig.stderrPipe}`);
-      
-      // In relay mode, run a special relay loop instead of normal UI
-      console.log('Starting relay interaction loop...');
-      await runRelayLoop(config, relayConfig, stdinStream, stdoutStream, stderrStream);
-      return;
-    } catch (error) {
-      console.error('Failed to setup relay mode:', error);
-      process.exit(1);
-    }
+    console.log(`Relay mode will be enabled after initialization: stdin=${relayConfig.stdinPipe}, stdout=${relayConfig.stdoutPipe}, stderr=${relayConfig.stderrPipe}`);
   }
 
   // Render UI, passing necessary config values. Check that there is no command line question.
   if (config.isInteractive()) {
+    // Check if relay mode should be used instead of regular UI
+    if (relayConfig) {
+      try {
+        console.log('Starting relay mode after full initialization...');
+        const { stdinStream, stdoutStream, stderrStream, cleanup } = await setupRelayStreams(relayConfig);
+        
+        // Redirect console output to pipes
+        const consoleCleanup = redirectConsoleOutput(stdoutStream, stderrStream);
+        
+        // Combined cleanup function
+        const relayCleanup = () => {
+          consoleCleanup();
+          cleanup();
+        };
+        
+        // Register cleanup on process exit
+        registerCleanup(relayCleanup);
+        
+        console.log('Relay mode fully initialized, starting interaction loop...');
+        await runRelayLoop(config, relayConfig, stdinStream, stdoutStream, stderrStream);
+        return;
+      } catch (error) {
+        console.error('Failed to setup relay mode:', error);
+        process.exit(1);
+      }
+    }
+    
     const version = await getCliVersion();
     // Detect and enable Kitty keyboard protocol once at startup
     await detectAndEnableKittyProtocol();
