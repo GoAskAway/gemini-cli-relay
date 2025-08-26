@@ -9,6 +9,7 @@ import { render } from 'ink';
 import { AppWrapper } from './ui/App.js';
 import { loadCliConfig, parseArguments } from './config/config.js';
 import { readStdin } from './utils/readStdin.js';
+import { setupRelayStreams, readFromStdinPipe, redirectConsoleOutput, RelayConfig } from './utils/relay.js';
 import { basename } from 'node:path';
 import v8 from 'node:v8';
 import os from 'node:os';
@@ -269,6 +270,50 @@ export async function main() {
     ...(await getUserStartupWarnings(workspaceRoot)),
   ];
 
+  // Setup relay mode if enabled
+  let relayCleanup: (() => void) | null = null;
+  if (argv.relay && argv.relayStdinPipe && argv.relayStdoutPipe && argv.relayStderrPipe) {
+    const relayConfig: RelayConfig = {
+      stdinPipe: argv.relayStdinPipe,
+      stdoutPipe: argv.relayStdoutPipe,
+      stderrPipe: argv.relayStderrPipe,
+    };
+    
+    try {
+      const { stdinStream, stdoutStream, stderrStream, cleanup } = await setupRelayStreams(relayConfig);
+      
+      // Redirect console output to pipes
+      const consoleCleanup = redirectConsoleOutput(stdoutStream, stderrStream);
+      
+      // Combined cleanup function
+      relayCleanup = () => {
+        consoleCleanup();
+        cleanup();
+      };
+      
+      // Register cleanup on process exit
+      registerCleanup(relayCleanup);
+      
+      console.log(`Relay mode enabled: stdin=${relayConfig.stdinPipe}, stdout=${relayConfig.stdoutPipe}, stderr=${relayConfig.stderrPipe}`);
+      
+      // For non-interactive mode, read from stdin pipe instead of process.stdin
+      if (!config.isInteractive() && !input) {
+        try {
+          const stdinData = await readFromStdinPipe(stdinStream);
+          if (stdinData) {
+            input = stdinData;
+          }
+        } catch (error) {
+          console.error('Error reading from stdin pipe:', error);
+          process.exit(1);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to setup relay mode:', error);
+      process.exit(1);
+    }
+  }
+
   // Render UI, passing necessary config values. Check that there is no command line question.
   if (config.isInteractive()) {
     const version = await getCliVersion();
@@ -303,9 +348,9 @@ export async function main() {
     registerCleanup(() => instance.unmount());
     return;
   }
-  // If not a TTY, read from stdin
+  // If not a TTY and not in relay mode, read from stdin
   // This is for cases where the user pipes input directly into the command
-  if (!process.stdin.isTTY) {
+  if (!process.stdin.isTTY && !argv.relay) {
     const stdinData = await readStdin();
     if (stdinData) {
       input = `${stdinData}\n\n${input}`;
