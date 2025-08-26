@@ -73,6 +73,10 @@ export interface CliArgs {
   listExtensions: boolean | undefined;
   proxy: string | undefined;
   includeDirectories: string[] | undefined;
+  relay: boolean | undefined;
+  relayStdinPipe: string | undefined;
+  relayStdoutPipe: string | undefined;
+  relayStderrPipe: string | undefined;
 }
 
 export async function parseArguments(): Promise<CliArgs> {
@@ -229,6 +233,23 @@ export async function parseArguments(): Promise<CliArgs> {
             // Handle comma-separated values
             dirs.flatMap((dir) => dir.split(',').map((d) => d.trim())),
         })
+        .option('relay', {
+          type: 'boolean',
+          description: 'Enable relay mode to redirect I/O through named pipes',
+          default: false,
+        })
+        .option('relay-stdin-pipe', {
+          type: 'string',
+          description: 'Named pipe path for stdin input (required when --relay is enabled)',
+        })
+        .option('relay-stdout-pipe', {
+          type: 'string',
+          description: 'Named pipe path for stdout output (required when --relay is enabled)',
+        })
+        .option('relay-stderr-pipe', {
+          type: 'string',
+          description: 'Named pipe path for stderr output (required when --relay is enabled)',
+        })
         .check((argv) => {
           if (argv.prompt && argv['promptInteractive']) {
             throw new Error(
@@ -239,6 +260,13 @@ export async function parseArguments(): Promise<CliArgs> {
             throw new Error(
               'Cannot use both --yolo (-y) and --approval-mode together. Use --approval-mode=yolo instead.',
             );
+          }
+          if (argv.relay) {
+            if (!argv['relayStdinPipe'] || !argv['relayStdoutPipe'] || !argv['relayStderrPipe']) {
+              throw new Error(
+                'When --relay is enabled, all three pipe paths must be specified: --relay-stdin-pipe, --relay-stdout-pipe, --relay-stderr-pipe',
+              );
+            }
           }
           return true;
         }),
@@ -406,7 +434,7 @@ export async function loadCliConfig(
   }
 
   const interactive =
-    !!argv.promptInteractive || (process.stdin.isTTY && question.length === 0);
+    !!argv.promptInteractive || (process.stdin.isTTY && question.length === 0) || !!argv.relay;
   // In non-interactive mode, exclude tools that require a prompt.
   const extraExcludes: string[] = [];
   if (!interactive && !argv.experimentalAcp) {

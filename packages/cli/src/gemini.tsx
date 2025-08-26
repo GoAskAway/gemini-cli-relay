@@ -9,6 +9,7 @@ import { render } from 'ink';
 import { AppWrapper } from './ui/App.js';
 import { loadCliConfig, parseArguments } from './config/config.js';
 import { readStdin } from './utils/readStdin.js';
+import { setupRelayStreams, redirectConsoleOutput, RelayConfig, runRelayLoop } from './utils/relay.js';
 import { basename } from 'node:path';
 import v8 from 'node:v8';
 import os from 'node:os';
@@ -269,8 +270,46 @@ export async function main() {
     ...(await getUserStartupWarnings(workspaceRoot)),
   ];
 
+  // Store relay configuration for later use
+  let relayConfig: RelayConfig | null = null;
+  if (argv.relay && argv.relayStdinPipe && argv.relayStdoutPipe && argv.relayStderrPipe) {
+    relayConfig = {
+      stdinPipe: argv.relayStdinPipe,
+      stdoutPipe: argv.relayStdoutPipe,
+      stderrPipe: argv.relayStderrPipe,
+    };
+    console.log(`Relay mode will be enabled after initialization: stdin=${relayConfig.stdinPipe}, stdout=${relayConfig.stdoutPipe}, stderr=${relayConfig.stderrPipe}`);
+  }
+
   // Render UI, passing necessary config values. Check that there is no command line question.
   if (config.isInteractive()) {
+    // Check if relay mode should be used instead of regular UI
+    if (relayConfig) {
+      try {
+        console.log('Starting relay mode after full initialization...');
+        const { stdinStream, stdoutStream, stderrStream, cleanup } = await setupRelayStreams(relayConfig);
+        
+        // Redirect console output to pipes
+        const consoleCleanup = redirectConsoleOutput(stdoutStream, stderrStream);
+        
+        // Combined cleanup function
+        const relayCleanup = () => {
+          consoleCleanup();
+          cleanup();
+        };
+        
+        // Register cleanup on process exit
+        registerCleanup(relayCleanup);
+        
+        console.log('Relay mode fully initialized, starting interaction loop...');
+        await runRelayLoop(config, relayConfig, stdinStream, stdoutStream, stderrStream);
+        return;
+      } catch (error) {
+        console.error('Failed to setup relay mode:', error);
+        process.exit(1);
+      }
+    }
+    
     const version = await getCliVersion();
     // Detect and enable Kitty keyboard protocol once at startup
     await detectAndEnableKittyProtocol();
@@ -303,9 +342,9 @@ export async function main() {
     registerCleanup(() => instance.unmount());
     return;
   }
-  // If not a TTY, read from stdin
+  // If not a TTY and not in relay mode, read from stdin
   // This is for cases where the user pipes input directly into the command
-  if (!process.stdin.isTTY) {
+  if (!process.stdin.isTTY && !argv.relay) {
     const stdinData = await readStdin();
     if (stdinData) {
       input = `${stdinData}\n\n${input}`;
