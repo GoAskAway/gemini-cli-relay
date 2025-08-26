@@ -434,7 +434,7 @@ export async function loadCliConfig(
   }
 
   const interactive =
-    !!argv.promptInteractive || (process.stdin.isTTY && question.length === 0);
+    !!argv.promptInteractive || (process.stdin.isTTY && question.length === 0) || !!argv.relay;
   // In non-interactive mode, exclude tools that require a prompt.
   const extraExcludes: string[] = [];
   if (!interactive && !argv.experimentalAcp) {

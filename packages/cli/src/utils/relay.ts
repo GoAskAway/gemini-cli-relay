@@ -8,6 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { Writable, Readable } from 'node:stream';
+import { Config } from '@google/gemini-cli-core';
 
 export interface RelayConfig {
   stdinPipe: string;
@@ -114,37 +115,53 @@ export async function setupRelayStreams(config: RelayConfig): Promise<{
 }
 
 /**
- * Reads input from stdin pipe (similar to readStdin but for pipes)
+ * Reads a single line from stdin pipe (for interactive sessions)
  */
 export async function readFromStdinPipe(stdinStream: Readable): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = '';
+    let resolved = false;
     
-    stdinStream.on('data', (chunk) => {
-      data += chunk.toString();
-    });
+    const onData = (chunk: Buffer) => {
+      const text = chunk.toString();
+      data += text;
+      
+      // Check for newline - when we get a complete line, resolve
+      if (text.includes('\n')) {
+        cleanup();
+        if (!resolved) {
+          resolved = true;
+          resolve(data.split('\n')[0].trim());
+        }
+      }
+    };
     
-    stdinStream.on('end', () => {
-      resolve(data.trim());
-    });
+    const onError = (error: Error) => {
+      cleanup();
+      if (!resolved) {
+        resolved = true;
+        reject(error);
+      }
+    };
     
-    stdinStream.on('error', (error) => {
-      reject(error);
-    });
+    const cleanup = () => {
+      stdinStream.removeListener('data', onData);
+      stdinStream.removeListener('error', onError);
+      clearTimeout(timeout);
+    };
+    
+    // Set up listeners
+    stdinStream.on('data', onData);
+    stdinStream.on('error', onError);
     
     // Set a reasonable timeout
     const timeout = setTimeout(() => {
-      stdinStream.destroy();
-      reject(new Error('Timeout reading from stdin pipe'));
-    }, 30000); // 30 seconds
-    
-    stdinStream.on('end', () => {
-      clearTimeout(timeout);
-    });
-    
-    stdinStream.on('error', () => {
-      clearTimeout(timeout);
-    });
+      cleanup();
+      if (!resolved) {
+        resolved = true;
+        reject(new Error('Timeout reading from stdin pipe'));
+      }
+    }, 60000); // 60 seconds for interactive use
   });
 }
 
@@ -182,4 +199,72 @@ export function redirectConsoleOutput(stdoutStream: Writable, stderrStream: Writ
     process.stdout.write = originalStdout;
     process.stderr.write = originalStderr;
   };
+}
+
+/**
+ * Runs the relay interaction loop for multi-turn conversations
+ */
+export async function runRelayLoop(
+  config: Config,
+  relayConfig: RelayConfig,
+  stdinStream: Readable,
+  stdoutStream: Writable,
+  stderrStream: Writable
+): Promise<void> {
+  const { runNonInteractive } = await import('../nonInteractiveCli.js');
+  let conversationHistory: string[] = [];
+  
+  stdoutStream.write('Relay mode started. Send messages through stdin pipe.\n');
+  
+  while (true) {
+    try {
+      // Wait for input from stdin pipe
+      stderrStream.write('Waiting for input...\n');
+      
+      const input = await readFromStdinPipe(stdinStream);
+      
+      if (!input || input.trim().toLowerCase() === 'exit' || input.trim().toLowerCase() === 'quit') {
+        stdoutStream.write('Relay session ended.\n');
+        break;
+      }
+      
+      stderrStream.write(`Received: ${input.substring(0, 100)}${input.length > 100 ? '...' : ''}\n`);
+      
+      // Add to conversation history
+      conversationHistory.push(`User: ${input}`);
+      
+      // Create a temporary output capture
+      let responseOutput = '';
+      const originalWrite = process.stdout.write;
+      
+      // Capture stdout during processing
+      process.stdout.write = function(chunk: any, encoding?: any, cb?: any): boolean {
+        responseOutput += chunk.toString();
+        return stdoutStream.write(chunk, encoding, cb);
+      };
+      
+      try {
+        // Process the input using the non-interactive CLI
+        const prompt_id = Math.random().toString(16).slice(2);
+        
+        // Run the query
+        await runNonInteractive(config, input, prompt_id);
+        
+        // Add response to history
+        if (responseOutput.trim()) {
+          conversationHistory.push(`Assistant: ${responseOutput.trim()}`);
+        }
+        
+      } finally {
+        // Restore original stdout
+        process.stdout.write = originalWrite;
+      }
+      
+      stdoutStream.write('\n--- End of response ---\n');
+      
+    } catch (error) {
+      stderrStream.write(`Error processing input: ${error}\n`);
+      stdoutStream.write('Sorry, there was an error processing your request.\n');
+    }
+  }
 }

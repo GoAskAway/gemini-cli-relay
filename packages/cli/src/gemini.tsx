@@ -9,7 +9,7 @@ import { render } from 'ink';
 import { AppWrapper } from './ui/App.js';
 import { loadCliConfig, parseArguments } from './config/config.js';
 import { readStdin } from './utils/readStdin.js';
-import { setupRelayStreams, readFromStdinPipe, redirectConsoleOutput, RelayConfig } from './utils/relay.js';
+import { setupRelayStreams, redirectConsoleOutput, RelayConfig, runRelayLoop } from './utils/relay.js';
 import { basename } from 'node:path';
 import v8 from 'node:v8';
 import os from 'node:os';
@@ -296,18 +296,10 @@ export async function main() {
       
       console.log(`Relay mode enabled: stdin=${relayConfig.stdinPipe}, stdout=${relayConfig.stdoutPipe}, stderr=${relayConfig.stderrPipe}`);
       
-      // For non-interactive mode, read from stdin pipe instead of process.stdin
-      if (!config.isInteractive() && !input) {
-        try {
-          const stdinData = await readFromStdinPipe(stdinStream);
-          if (stdinData) {
-            input = stdinData;
-          }
-        } catch (error) {
-          console.error('Error reading from stdin pipe:', error);
-          process.exit(1);
-        }
-      }
+      // In relay mode, run a special relay loop instead of normal UI
+      console.log('Starting relay interaction loop...');
+      await runRelayLoop(config, relayConfig, stdinStream, stdoutStream, stderrStream);
+      return;
     } catch (error) {
       console.error('Failed to setup relay mode:', error);
       process.exit(1);
