@@ -1,0 +1,264 @@
+name: Sync Upstream
+
+on:
+  # 每天 UTC 20:00 (北京时间 04:00) 自动运行
+  schedule:
+    - cron: '0 20 * * *' # 北京时间 04:00
+  # 允许手动触发
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # 获取所有分支和历史
+          fetch-depth: 0
+          # 使用 PAT token 以获取 workflow 写入权限
+          token: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/google-gemini/gemini-cli.git || true
+          git remote -v
+
+      - name: Fetch upstream tags and releases
+        run: |
+          git fetch upstream --tags
+          git fetch origin --tags
+          # 获取 main 分支的最新信息（用于访问 release commits）
+          git fetch upstream main
+
+      - name: Switch to upstream-main branch
+        run: |
+          # 如果分支不存在，创建它
+          git checkout upstream-main || git checkout -b upstream-main
+
+      - name: Sync with upstream release version
+        id: sync_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Current branch: $(git branch --show-current)"
+          echo "Before sync:"
+          git log --oneline -5
+
+          # 获取当前 upstream-main 分支的版本信息
+          CURRENT_COMMIT=$(git rev-parse HEAD)
+          echo "Current upstream-main commit: $CURRENT_COMMIT"
+
+          # 尝试从当前 commit 获取版本信息（如果有 tag 的话）
+          CURRENT_VERSION=""
+          if git describe --tags --exact-match HEAD 2>/dev/null; then
+            CURRENT_VERSION=$(git describe --tags --exact-match HEAD 2>/dev/null)
+            echo "Current version tag: $CURRENT_VERSION"
+          else
+            echo "Current commit has no version tag"
+          fi
+
+          # 获取上游最新稳定发布版本
+          LATEST_RELEASE=$(gh api repos/google-gemini/gemini-cli/releases --jq '[.[] | select(.prerelease == false and (.tag_name | contains("nightly") or contains("preview")) | not)] | .[0].tag_name')
+
+          if [ -z "$LATEST_RELEASE" ] || [ "$LATEST_RELEASE" = "null" ]; then
+            echo "❌ Failed to fetch latest stable release from upstream"
+            echo "should_skip=true" >> $GITHUB_OUTPUT
+            echo "skip_reason=api_failure" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Latest upstream release: $LATEST_RELEASE"
+
+          # 版本比较：如果当前版本比最新版本新，则跳过同步
+          if [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VERSION" != "$LATEST_RELEASE" ]; then
+            # 使用语义化版本比较
+            CURRENT_VER_NUM=$(echo "$CURRENT_VERSION" | sed 's/^v//' | sed 's/-.*$//')
+            LATEST_VER_NUM=$(echo "$LATEST_RELEASE" | sed 's/^v//' | sed 's/-.*$//')
+            
+            echo "Comparing versions: $CURRENT_VER_NUM vs $LATEST_VER_NUM"
+            
+            # 使用 sort -V 进行版本比较
+            HIGHER_VERSION=$(printf "%s\n%s\n" "$CURRENT_VER_NUM" "$LATEST_VER_NUM" | sort -V | tail -n 1)
+            
+            if [ "$CURRENT_VER_NUM" = "$HIGHER_VERSION" ] && [ "$CURRENT_VER_NUM" != "$LATEST_VER_NUM" ]; then
+              echo "⚠️  Current version ($CURRENT_VERSION) is newer than upstream ($LATEST_RELEASE)"
+              echo "Skipping sync to prevent rollback. This usually indicates manual intervention."
+              echo "should_skip=true" >> $GITHUB_OUTPUT
+              echo "skip_reason=version_rollback_prevention" >> $GITHUB_OUTPUT
+              echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+              echo "latest_version=$LATEST_RELEASE" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          fi
+
+          # 获取该发布版本对应的 commit hash
+          RELEASE_COMMIT=$(gh api "repos/google-gemini/gemini-cli/git/refs/tags/$LATEST_RELEASE" --jq '.object.sha')
+
+          if [ -z "$RELEASE_COMMIT" ] || [ "$RELEASE_COMMIT" = "null" ]; then
+            echo "❌ Failed to fetch commit hash for release $LATEST_RELEASE"
+            echo "should_skip=true" >> $GITHUB_OUTPUT
+            echo "skip_reason=commit_hash_failure" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Release commit hash: $RELEASE_COMMIT"
+
+          # 检查是否是同一个 commit（避免不必要的操作）
+          if [ "$CURRENT_COMMIT" = "$RELEASE_COMMIT" ]; then
+            echo "✅ Already at the latest release commit"
+            echo "should_skip=true" >> $GITHUB_OUTPUT
+            echo "skip_reason=already_up_to_date" >> $GITHUB_OUTPUT
+            echo "release_version=$LATEST_RELEASE" >> $GITHUB_OUTPUT
+            echo "release_commit=$RELEASE_COMMIT" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # 获取 commit 的详细信息
+          COMMIT_INFO=$(gh api "repos/google-gemini/gemini-cli/commits/$RELEASE_COMMIT" --jq '{message: .commit.message, author: .commit.author.name, date: .commit.author.date}')
+          echo "Commit info: $COMMIT_INFO"
+
+          # 重置到发布版本的 commit（而不是 main 分支顶端）
+          git reset --hard $RELEASE_COMMIT
+
+          echo "After sync:"
+          echo "- Release version: $LATEST_RELEASE"
+          echo "- Commit: $RELEASE_COMMIT"
+          git log --oneline -5
+
+          # 输出到后续步骤
+          echo "should_skip=false" >> $GITHUB_OUTPUT
+          echo "release_version=$LATEST_RELEASE" >> $GITHUB_OUTPUT
+          echo "release_commit=$RELEASE_COMMIT" >> $GITHUB_OUTPUT
+
+      - name: Verify sync completion
+        if: steps.sync_release.outputs.should_skip != 'true'
+        run: |
+          echo "Sync completed successfully"
+          echo "Current branch: $(git branch --show-current)"
+          echo "Release version: ${{ steps.sync_release.outputs.release_version }}"
+          echo "Release commit: ${{ steps.sync_release.outputs.release_commit }}"
+          echo "Current HEAD: $(git log --oneline -1)"
+
+      - name: Check for changes and push to upstream-main
+        id: check_changes
+        if: steps.sync_release.outputs.should_skip != 'true'
+        run: |
+          # 检查是否有更新
+          if git diff --quiet origin/upstream-main 2>/dev/null; then
+            echo "No changes to push"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "Force pushing updates to upstream-main branch"
+            # 使用 --force 而不是 --force-with-lease，确保 100% 同步
+            git push origin upstream-main --force
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "latest_commit=$(git log --oneline -1)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Clean up old sync PRs and branches
+        if: steps.check_changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Checking for existing sync PRs..."
+
+          # 查找所有 sync/upstream-* 开头的开放 PR
+          existing_prs=$(gh pr list --head-pattern "sync/upstream-*" --state open --json number,headRefName | jq -r '.[] | "\(.number):\(.headRefName)"')
+
+          if [ -n "$existing_prs" ]; then
+            echo "Found existing sync PRs, cleaning up..."
+            echo "$existing_prs" | while IFS=':' read -r pr_number branch_name; do
+              echo "Closing PR #$pr_number and deleting branch $branch_name"
+              gh pr close "$pr_number" --comment "Superseded by new upstream sync"
+              git push origin --delete "$branch_name" || echo "Branch $branch_name already deleted"
+            done
+          else
+            echo "No existing sync PRs found"
+          fi
+
+      - name: Create sync PR to main
+        if: steps.check_changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          # 创建同步分支 (基于 upstream-main 当前状态)
+          SYNC_BRANCH="sync/upstream-$(date +%Y%m%d-%H%M%S)"
+          echo "Creating sync branch: $SYNC_BRANCH"
+
+          # 确保在 upstream-main 分支上
+          git checkout upstream-main
+          git checkout -b "$SYNC_BRANCH"
+          git push origin "$SYNC_BRANCH"
+
+          # 创建 PR 到 main 分支
+          gh pr create \
+            --base main \
+            --head "$SYNC_BRANCH" \
+            --title "🔄 Sync upstream release ${{ steps.sync_release.outputs.release_version }}" \
+            --body "$(cat <<'EOF'
+          ## 📥 Upstream Release Sync
+
+          This PR synchronizes with the latest upstream stable release.
+
+          **Release Details:**
+          - **Version**: ${{ steps.sync_release.outputs.release_version }}
+          - **Commit**: ${{ steps.sync_release.outputs.release_commit }}
+          - **Source**: google-gemini/gemini-cli stable releases
+          - **Sync time**: $(date)
+
+          ### Changes
+          This PR brings all changes from the upstream release, including:
+          - New features and improvements
+          - Bug fixes and security updates  
+          - Dependencies updates
+
+          ### Review Notes
+          - This is an automated sync from upstream stable release
+          - Review for any potential conflicts with relay-specific modifications
+          - Test relay functionality after merging
+          - Merge when ready to integrate upstream updates
+
+          🤖 Auto-generated by release-only sync workflow
+          EOF
+          )"
+
+          echo "✅ Created PR: $SYNC_BRANCH → main"
+
+      - name: Create summary
+        run: |
+          echo "## 📥 Upstream Release Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Source**: google-gemini/gemini-cli releases" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target**: upstream-main branch" >> $GITHUB_STEP_SUMMARY
+          echo "- **Sync strategy**: Release-only (stable versions)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Sync time**: $(date)" >> $GITHUB_STEP_SUMMARY
+
+          # 根据不同的跳过原因显示不同状态
+          if [ "${{ steps.sync_release.outputs.should_skip }}" = "true" ]; then
+            case "${{ steps.sync_release.outputs.skip_reason }}" in
+              "already_up_to_date")
+                echo "- **Status**: ✅ Already up to date with ${{ steps.sync_release.outputs.release_version }}" >> $GITHUB_STEP_SUMMARY
+                ;;
+              "version_rollback_prevention")
+                echo "- **Status**: ⚠️ Rollback prevented - current ${{ steps.sync_release.outputs.current_version }} > upstream ${{ steps.sync_release.outputs.latest_version }}" >> $GITHUB_STEP_SUMMARY
+                ;;
+              "api_failure"|"commit_hash_failure")
+                echo "- **Status**: ❌ Sync failed - ${{ steps.sync_release.outputs.skip_reason }}" >> $GITHUB_STEP_SUMMARY
+                ;;
+              *)
+                echo "- **Status**: ⏭️ Sync skipped - ${{ steps.sync_release.outputs.skip_reason }}" >> $GITHUB_STEP_SUMMARY
+                ;;
+            esac
+          elif [ "${{ steps.check_changes.outputs.has_changes }}" = "true" ]; then
+            echo "- **Status**: ✅ New release ${{ steps.sync_release.outputs.release_version }} synced, PR created" >> $GITHUB_STEP_SUMMARY
+            echo "- **Release version**: ${{ steps.sync_release.outputs.release_version }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Release commit**: ${{ steps.sync_release.outputs.release_commit }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Status**: ✅ Sync completed, no changes needed" >> $GITHUB_STEP_SUMMARY
+            echo "- **Release version**: ${{ steps.sync_release.outputs.release_version }}" >> $GITHUB_STEP_SUMMARY
+          fi
